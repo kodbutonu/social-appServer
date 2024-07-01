@@ -14,7 +14,7 @@ db(); // MongoDB bağlantısı
 
 // Diğer route tanımlamaları
 app.use('/api/auth', authRoutes);
-app.use('/api/posts', postRoutes);
+app.use('/api/post', postRoutes);
 
 // Server başlatma
 const PORT = process.env.PORT || 8000;
