@@ -1,22 +1,23 @@
 const express = require('express');
 const authRoutes = require('./routes/auth.js');
+const postRoutes = require('./routes/post.js');
 const db = require("./config/index.js");
-var cors = require('cors')
+const cors = require('cors');
 
 const app = express();
 
-
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+app.use(cors());
 
-db();
+db(); // MongoDB bağlantısı
 
-app.use(cors())
-app.use(express.urlencoded({ extended: false }))
-// Routes
+// Diğer route tanımlamaları
 app.use('/api/auth', authRoutes);
-
+app.use('/api/posts', postRoutes);
 
 // Server başlatma
-app.listen(8000, () => {
-    console.log(`Server is running on port}`);
+const PORT = process.env.PORT || 8000;
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
 });

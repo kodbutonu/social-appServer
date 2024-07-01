@@ -5,15 +5,21 @@ const User = require('../models/User');
 
 // Register route
 router.post('/register', async (req, res) => {
-    const { username, password, email, passwordAgain,phoneNumber } = req.body;
+    const { username, password, email, passwordAgain, phoneNumber } = req.body;
 
     if (password !== passwordAgain) {
         return res.status(400).json({ error: 'Passwords do not match' });
     }
 
     try {
+        // Check if username already exists
+        const existingUser = await User.findOne({ username });
+        if (existingUser) {
+            return res.status(400).json({ error: 'Username already exists' });
+        }
+
         // Hash the password
-        const hashedPassword = await bcrypt.hash(password, parseInt(5, 10));
+        const hashedPassword = await bcrypt.hash(password, 10); // using 10 rounds for bcrypt hashing
 
         // Create a new user instance
         const newUser = new User({
@@ -30,7 +36,6 @@ router.post('/register', async (req, res) => {
         res.status(400).json({ error: err.message });
     }
 });
-
 
 // Login route
 router.post('/login', async (req, res) => {
