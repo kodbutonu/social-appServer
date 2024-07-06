@@ -6,32 +6,37 @@ const User = require('../models/User');
 const jwtSecret = process.env.JWT_SECRET ||'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
 const nodemailer = require('nodemailer');
 
-// Nodemailer ile e-posta gönderme ayarları
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-        user: 'oergin526@gmail.com', // E-posta adresiniz
-        pass: 'dawy fyyl xesk seno' // E-posta şifreniz
+        user: 'oergin526@gmail.com',
+        pass: 'dawy fyyl xesk seno'
     },
     tls: {
-        // Node.js geliştirme ortamında self-signed sertifikaları kabul etmek için gerekli ayarlar
         rejectUnauthorized: false
     }
 });
-// Şifre sıfırlama isteği
-router.post('/reset-password', async (req, res) => {
+
+function generateResetCode() {
+    const resetCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    return resetCode;
+}
+
+router.post('/reset-password-request', async (req, res) => {
     const { email } = req.body;
 
     try {
-        // Kullanıcıyı veritabanında bul
-        const user = await User.findOne({ $or: [{ email }, { email: email }] });
+        const user = await User.findOne({ email });
         if (!user) {
             return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
         }
 
-        // Şifre sıfırlama talimatlarını e-posta ile gönder
-        const resetLink = generateResetLink(user); // Şifre sıfırlama linki oluşturma işlevi
-        await sendResetEmail(user.email, resetLink); // E-posta gönderme işlemi
+        const resetToken = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+        user.resetToken = resetToken;
+        await user.save();
+
+        await sendResetEmail(user.email, resetToken);
 
         res.json({ success: true });
     } catch (error) {
@@ -40,88 +45,86 @@ router.post('/reset-password', async (req, res) => {
     }
 });
 
-// E-posta gönderme fonksiyonu
-async function sendResetEmail(recipientEmail, resetLink) {
+async function sendResetEmail(recipientEmail, resetToken) {
     try {
-        // E-posta seçenekleri
         let mailOptions = {
-            from: 'your-email@gmail.com', // Gönderici e-posta adresi
-            to: recipientEmail, // Alıcı e-posta adresi
-            subject: 'Şifre Sıfırlama Talimatları',
-            html: `<p>Şifrenizi sıfırlamak için <a href="${resetLink}">buraya tıklayın</a>.</p>`
+            from: 'oergin526@gmail.com',
+            to: recipientEmail,
+            subject: 'Şifre Sıfırlama',
+            text: `Şifrenizi sıfırlamak için aşağıdaki bağlantıyı kullanın: http://localhost:3000/reset-password/${resetToken}`
         };
 
-        // E-posta gönderimi
         let info = await transporter.sendMail(mailOptions);
         console.log('E-posta gönderildi: %s', info.messageId);
     } catch (error) {
         console.error('E-posta gönderirken hata oluştu:', error);
-        throw error; // Hata durumunda hatayı yeniden fırlat
+        throw error;
     }
 }
 
-// Örnek şifre sıfırlama linki oluşturma işlevi
-function generateResetLink(user) {
-    // Burada güvenlik için token veya benzersiz bir link oluşturulabilir
-    return `http://localhost:3000/reset-password/${user._id}`;
-}
-// Register route
-router.post('/register', async (req, res) => {
-    const { username, password, email, passwordAgain, phoneNumber } = req.body;
-
-    if (password !== passwordAgain) {
-        return res.status(400).json({ error: 'Passwords do not match' });
-    }
+router.post('/reset-password', async (req, res) => {
+    const { resetToken, newPassword } = req.body;
 
     try {
-        // Check if username already exists
-        const existingUser = await User.findOne({ username });
-        if (existingUser) {
-            return res.status(400).json({ error: 'Username already exists' });
+        const decoded = jwt.verify(resetToken, process.env.JWT_SECRET);
+        const user = await User.findById(decoded.userId);
+
+        if (!user) {
+            return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
         }
 
-        // Hash the password
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-        // Create a new user instance
-        const newUser = new User({
-            username,
-            password: hashedPassword,
-            email,
-            phoneNumber
-        });
+        user.password = hashedPassword;
+        user.resetToken = '';
+        await user.save();
 
-        // Save the user to the database
-        const savedUser = await newUser.save();
-
-        // Generate JWT token
-        const token = jwt.sign({ userId: savedUser._id }, jwtSecret, { expiresIn: '1h' });
-
-        res.json({ token });
-    } catch (err) {
-        res.status(400).json({ error: err.message });
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Şifre yenileme sırasında hata:', error);
+        res.status(500).json({ error: 'Şifre yenileme sırasında bir hata oluştu' });
     }
 });
 
-// Login route
+
+router.post('/register', async (req, res) => {
+    const { username, password } = req.body;
+
+    try {
+        const existingUser = await User.findOne({ username });
+        if (existingUser) {
+            return res.status(400).json({ error: 'Kullanıcı adı zaten var' });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const newUser = new User({ username, password: hashedPassword });
+        await newUser.save();
+
+        const token = generateToken(newUser);
+        res.json({ token });
+    } catch (error) {
+        res.status(500).json({ error: 'Kullanıcı oluşturulurken bir hata oluştu' });
+    }
+});
+
 router.post('/login', async (req, res) => {
     const { username, password } = req.body;
 
     try {
-        // Find user in database
         const user = await User.findOne({ username });
-        if (!user) return res.status(400).json({ error: 'User not found' });
+        if (!user) {
+            return res.status(400).json({ error: 'Kullanıcı bulunamadı' });
+        }
 
-        // Check password
         const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) return res.status(400).json({ error: 'Invalid credentials' });
+        if (!isMatch) {
+            return res.status(400).json({ error: 'Geçersiz kimlik bilgileri' });
+        }
 
-        // Generate JWT token
-        const token = jwt.sign({ userId: user._id }, jwtSecret, { expiresIn: '1h' });
-
+        const token = generateToken(user);
         res.json({ token });
-    } catch (err) {
-        res.status(400).json({ error: err.message });
+    } catch (error) {
+        res.status(500).json({ error: 'Giriş yapılırken bir hata oluştu' });
     }
 });
 
